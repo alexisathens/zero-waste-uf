@@ -1,0 +1,200 @@
+---
+title: "Design of Experiments Final Project"
+author: "Alexis Athens"
+date: "4/23/2018"
+output: word_document
+---
+###Final Project: Waste-Less UF
+##A Study of UF Students' Carbon Footprints on Campus
+
+#Motivation for the project
+For my climate change science final project, I proposed an system that incentivized students to bring their own reusable items to campus in place of plastic/paper consumables in attempt to reduce UF's carbon footprint. In order to quantify the predicted decrease in UF's footprint, I polled UF students for the average amount of plastic/paper consumables they throw away or recycle weekly, which was used as the response variable in this study.
+
+#Objective of the study
+For this project, I asked the respondents demographic questions (gender, year in school) to try to find if these factors affect the amount of consumables used weekly. I will test whether these are significant predictors of the amount of consumables used weekly.
+RQ1: Does gender affect the amount of plastic and paper consumables thrown away on campus?
+$H0: \alpha_{i}=0, \forall i$
+RQ2: Does year in school affect the amount of plastic and paper consumables thrown away on campus?
+$H0: \beta_{j}=0, \forall j$
+
+
+#Method of data collection
+The study was conducted by anonymous polling via social media over a few days with 338 total responses. Data was cleaned upon initial collection (manually removed response values of 420 and 999999 from csv file).
+![](project/images/Responses.png)
+
+```{r, warning=FALSE, message=FALSE}
+#import and further clean data
+rm(list=ls(all=TRUE))
+
+library(plyr); library(dplyr)
+library(ggplot2)
+library(car)
+
+dat <- read.csv("project/CCDataApr10.csv",
+                col.names=c("gender","year","plastic.b","paper.b","willing","plastic.a","paper.a","credit"))
+#View(dat)
+
+#add additional columns
+dat <- mutate(dat, waste.b=plastic.b+paper.b) #total weekly waste before
+dat <- mutate(dat, waste.a=plastic.a+paper.a) #total weekly waste after
+dat <- mutate(dat, diff=waste.b-waste.a) #total weekly waste after
+
+#clean data
+#remove after values larger than before values
+dat <- dat[-which(dat$diff<0),]
+
+#total sample size
+nt=dim(dat)[1] #316 valid responses
+
+#rephrase credit variable
+dat$credit <- mapvalues(dat$credit, from = c("Redeem additional reusable items for personal use", 
+                      "Fund an on-campus organization of your choice"), 
+          to = c("Personal", "Club"))
+
+attach(dat)
+
+#order factors
+gender <- factor(gender, levels=c("Male","Female"))
+year <- factor(year, levels=c("Freshman","Sophomore","Junior","Senior","Graduate Student"))
+willing <- factor(willing, levels=c("Yes","Sometimes","No"))
+credit <- factor(credit,levels=c("Personal","Club"))
+
+a <- length(levels(gender)) #2 levels
+b <- length(levels(year)) #5 levels
+
+ggplot(data=dat,aes(x=waste.b,color=waste.b)) + geom_bar(fill="steelblue") + labs(x="Weekly number of consumables")
+```
+See back page for data set.
+
+
+#Model and assumptions
+For my study, I used an unbalanced 2-factor model with levels A=gender and B=year with a transormed response:
+$\sqrt{Y_{ijk}} =  \mu_{..} + \alpha_{i} + \beta_{j} + \epsilon_{ijk}$
+and $\epsilon_{ijk} =NID(0,\sigma^2)$
+for $i=1,2$, $j=1,...,5$, and $k=1,...,n_{i}$
+
+After checking the normal probability plot and the histogram of residuals for the non-transformed model, it was immediately apparent that the residuals are skewed right. To account for this, I decided to use a square root transformation on the response; I found this transformation to be most appopriate since there are zero values in the data set and the transformation had only a moderate effect of the distribution shape (square root transformation preserved the shape of the oringal response). I also considered a cubed root transformation, but ultimately decided against it because it seemed too heavy-handed and appeared to worsen the normality of variances assumption.
+
+Even after the transformation, the normal probability plot still reflects that the error terms are not normally distributed due to the zero-inflated data. Using the Shapiro-Wilk normality of error test, we can conclude that the terms are not normally distributed since we had a p-value of approximately zero.
+
+Aside from this large caveat, I concluded that there is a homogeneity of variances between groups by the high p-value of Levene's test (and supported visually by the horizontal band of data on the residuals vs fitted plot). Furthermore, the transformation seemed to help reduce the appearance of outliers and there was no trend apparent in the residuals vs fitted plot, which supports the claim of independence between error terms.
+
+I decided to continue with this model despite the non-normality of error terms, but to further improve this model, I would use a zero-inflated Poisson distribution since we are dealing with non-negative count data.
+
+```{r, warning=FALSE}
+#model with interaction term and amount of waste as a response
+before.mod1 <- aov(waste.b ~ gender * year)
+
+#check model assumptions
+
+#before response transformation...
+#normal probability plot of residuals
+par(mfrow=c(2,3))
+qqnorm(waste.b, main="Normal Q-Q Plot, original")
+qqline(waste.b)
+
+#histogram of residuals
+hist(resid(before.mod1),main="histogram of residuals")
+
+#residuals vs fits plot
+e.mod1 <- resid(before.mod1)
+yhat.mod1 <- predict(before.mod1)
+plot(yhat.mod1,e.mod1,main="residuals vs. fitted values",xlab="fitted values",ylab="residuals")
+abline(h=0)
+
+
+
+#after response transformation...
+sqrt.waste.b <- sqrt(waste.b) #square root transformation to reduce right skew
+before.mod2 <- aov(sqrt.waste.b ~ gender * year) #with interaction and transformed y
+
+#normal probability plot of residuals
+qqnorm(sqrt.waste.b, main="Normal Q-Q Plot, transformed") #helps but zero-inflation still apparent
+qqline(sqrt.waste.b)
+
+#histogram of residuals
+hist(resid(before.mod2),main="histogram of residuals")
+
+#residuals vs fits plot
+e.mod2 <- resid(before.mod2)
+yhat.mod2 <- predict(before.mod2)
+plot(yhat.mod2,e.mod2,main="residuals vs. fitted values",xlab="fitted values",ylab="residuals")
+abline(h=0)
+#plot indicates a bit of variation in variances (among other things), test using levene
+
+
+#Levene homogeneity of variance test
+leveneTest(before.mod2) 
+#H0: group variances are equal. high p-value -> can conclude variances equal
+#this test is robust to non-normality :-)
+
+#Shapiro-Wilk normality of error test
+shapiro.test(sqrt.waste.b) #p-value of 0... error terms not normally distributed
+
+```
+
+
+
+#Method of analysis
+As an exploratory analysis, I looked at group means as well as box plots of the data. The response observed was the number of plastic and paper food-related consumables used on campus weekly. These were grouped by gender and year in school.
+
+It can be seen that freshman seem to waste more on average compared to other years and that males appear to waste slightly more than females.
+
+```{r}
+ybar.groups.b <- round(tapply(waste.b,list(gender,year), mean),2) #group means
+ybar.dot.j <- round(tapply(waste.b,list(year), mean),2) #sum over all a levels
+ybar.i.dot <- round(tapply(waste.b,list(gender), mean),2) #sum over all b levels
+overall.mean <- mean(waste.b)
+
+groups.size <- tapply(waste.b,list(gender, year), length) #group sample sizes
+groups.size #smallest group sample size of 11
+```
+
+![](project/images/groupmeans.png)
+
+
+```{r}
+library(wesanderson)
+ggplot(data=dat,aes(x=year,y=sqrt.waste.b,fill=year)) + geom_boxplot() + 
+  scale_fill_manual(values=wes_palette(n=5, name="FantasticFox")) + 
+  labs(x = "Year") + labs(y="Sqrt weekly number of consumables") + 
+  labs(title="Sqrt number of consumables by year in school")
+```
+
+
+```{r}
+ggplot(data=dat,aes(x=gender,y=sqrt.waste.b,fill=gender)) + geom_boxplot() + 
+  scale_fill_manual(values=wes_palette(n=2, name="Darjeeling")) + 
+  labs(x = "Gender") + labs(y="Sqrt weekly number of consumables") + 
+  labs(title="Sqrt number of consumables by gender")
+```
+
+
+Now that I have decided on using a square root transformation, I will test for whether or not the main effects and interaction term are statistically significant.
+
+Firstly, I ran a type I ANOVA on the full model containing the interaction term. Since the interaction term was not significant, I decided to drop it and proceed with a type III ANOVA for the reduced model due to the unbalanced sample sizes.
+
+After running the ANOVA, we can reject the null hypothesis that the group means are all equal for both main effects because of the low p-values. Thus there is a statistically significant difference in means between at least two groups of the groups.
+
+```{r}
+before.mod2 <- aov(sqrt.waste.b ~ gender * year) #model with interaction term
+before.mod3 <- aov(sqrt.waste.b ~ gender + year) #model without interaction term
+anova(before.mod3, before.mod2)
+
+library(car)
+Anova(before.mod3,type="III") #reduced model
+```
+
+To further explore these differences, we will use Tukey's post-hoc comparison of means. It can be seen that there are significant differences between jr-fr and sr-fr and so-fr, but the Tukey test did not produce a significant difference between genders.
+
+```{r}
+TukeyHSD(before.mod3, c("gender","year")) #pairwise mean comparisons
+```
+
+
+#Conclusions
+Due to the nature of the non-negative and zero-inflated count data I collected, I think that a zero-inflated Poisson distribution would have been more appropriate. Since that model was beyond the scope of this class, I tried to make the normal regression work to the best of my ability.
+
+Using this model, I found that both main effects (gender and year) were significant and the interaction term was not. In specific, freshmen seemed to have a higher amount of consumables used weekly compared to most other groups. With respect to the inconsistency between the ANOVA for the gender effect and the Tukey comparison between male and female, I am inclined to side with the ANOVA and conclude that there is a statistically significant difference between males and females using this model. Females seem to consistently produce lower amounts of waste between the different groups for year in school and the low p-value indicates that the factor does illustrate a statistically significant effect on the dependent variable, amount of consumable waste.
+
+In conclusion, we can reject both null hypotheses since both main effects were significant!
